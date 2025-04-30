@@ -1,6 +1,7 @@
 import { Link } from "@remix-run/react";
 import type { Build, Component, ComponentCategory } from "~/data/components";
 import { formatPrice } from "~/utils/build";
+import { getBestPrice, getTotalPrice } from "~/utils/priceScraper";
 
 interface BuildComponentListProps {
   build: Build;
@@ -102,8 +103,38 @@ export default function BuildComponentList({ build, onRemoveComponent }: BuildCo
 
                     <td className="px-4 py-4 whitespace-nowrap">
                       {component ? (
-                        <div className="text-sm font-medium text-gray-900">
-                          {formatPrice(component.price)}
+                        <div>
+                          {component.retailerPrices && component.retailerPrices.length > 0 ? (
+                            <>
+                              {(() => {
+                                const bestPrice = getBestPrice(component.retailerPrices);
+                                if (bestPrice) {
+                                  return (
+                                    <>
+                                      <div className="text-sm font-medium text-gray-900">
+                                        {formatPrice(getTotalPrice(bestPrice))}
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        from {bestPrice.retailer}
+                                      </div>
+                                    </>
+                                  );
+                                } else {
+                                  return (
+                                    <div className="text-sm font-medium text-gray-900">
+                                      {formatPrice(component.price)}
+                                      <span className="text-xs text-gray-500 ml-1">(MSRP)</span>
+                                    </div>
+                                  );
+                                }
+                              })()}
+                            </>
+                          ) : (
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatPrice(component.price)}
+                              <span className="text-xs text-gray-500 ml-1">(MSRP)</span>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="text-sm text-gray-500">—</div>

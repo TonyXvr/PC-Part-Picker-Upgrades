@@ -1,7 +1,7 @@
 import { json, redirect } from "@remix-run/node";
 import { useLoaderData, useSubmit } from "@remix-run/react";
 import type { MetaFunction, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
-import { getSampleBuilds, calculateTotalPrice, checkCompatibility } from "~/data/components";
+import { getSampleBuilds, calculateTotalPrice, checkCompatibility, fetchPricesForBuild } from "~/data/components";
 import { getCurrentBuild, saveCurrentBuild } from "~/utils/session";
 import { formatPrice, getTotalWattage } from "~/utils/build";
 import Header from "~/components/Header";
@@ -15,7 +15,7 @@ export const meta: MetaFunction = ({ data }) => {
       { name: "description", content: "The requested build could not be found" },
     ];
   }
-  
+
   return [
     { title: `${data.build.name} - AppFit PC Builder` },
     { name: "description", content: `View details for the ${data.build.name} PC build` },
@@ -24,25 +24,28 @@ export const meta: MetaFunction = ({ data }) => {
 
 export async function loader({ params, request }: LoaderFunctionArgs) {
   const { id } = params;
-  
+
   if (!id) {
     return redirect("/builds");
   }
-  
+
   const sampleBuilds = getSampleBuilds();
   const build = sampleBuilds.find(build => build.id === id);
-  
+
   if (!build) {
     throw new Response("Build not found", { status: 404 });
   }
-  
+
+  // Fetch prices for all components in the build
+  const buildWithPrices = await fetchPricesForBuild(build);
+
   const currentBuild = await getCurrentBuild(request);
-  const totalPrice = calculateTotalPrice(build.components);
-  const compatibility = checkCompatibility(build.components);
-  const totalWattage = getTotalWattage(build);
-  
+  const totalPrice = calculateTotalPrice(buildWithPrices.components);
+  const compatibility = checkCompatibility(buildWithPrices.components);
+  const totalWattage = getTotalWattage(buildWithPrices);
+
   return json({
-    build,
+    build: buildWithPrices,
     currentBuild,
     totalPrice,
     compatibility,
@@ -52,21 +55,21 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
 
 export async function action({ params, request }: ActionFunctionArgs) {
   const { id } = params;
-  
+
   if (!id) {
     return redirect("/builds");
   }
-  
+
   const sampleBuilds = getSampleBuilds();
   const build = sampleBuilds.find(build => build.id === id);
-  
+
   if (!build) {
     throw new Response("Build not found", { status: 404 });
   }
-  
+
   // Save this build as the current build
   const cookie = await saveCurrentBuild(request, build);
-  
+
   return redirect("/build", {
     headers: {
       "Set-Cookie": cookie,
@@ -77,17 +80,17 @@ export async function action({ params, request }: ActionFunctionArgs) {
 export default function BuildDetailPage() {
   const { build, currentBuild, totalPrice, compatibility, totalWattage } = useLoaderData<typeof loader>();
   const submit = useSubmit();
-  
+
   const handleLoadBuild = () => {
     if (window.confirm("This will replace your current build. Are you sure?")) {
       submit({}, { method: "post" });
     }
   };
-  
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header currentBuild={currentBuild} />
-      
+
       <main className="flex-grow max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="mb-6">
           <h1 className="text-3xl font-extrabold text-gray-900">
@@ -97,7 +100,7 @@ export default function BuildDetailPage() {
             Total Price: {formatPrice(totalPrice)}
           </p>
         </div>
-        
+
         {/* Status Bar */}
         <div className="mb-6 flex flex-col md:flex-row gap-4">
           <div className={`flex-1 p-4 rounded-md ${compatibility.compatible ? 'bg-green-100' : 'bg-red-100'}`}>
@@ -119,7 +122,7 @@ export default function BuildDetailPage() {
               )}
             </div>
           </div>
-          
+
           <div className="flex-1 p-4 rounded-md bg-blue-100">
             <div className="flex items-center">
               <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
@@ -129,12 +132,12 @@ export default function BuildDetailPage() {
             </div>
           </div>
         </div>
-        
+
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <BuildComponentList build={build} />
           </div>
-          
+
           <div className="lg:col-span-1">
             <div className="bg-white shadow rounded-lg overflow-hidden">
               <div className="px-4 py-5 sm:px-6 bg-gray-50">
@@ -142,7 +145,7 @@ export default function BuildDetailPage() {
                   Build Actions
                 </h3>
               </div>
-              
+
               <div className="px-4 py-5 sm:p-6">
                 <div className="grid grid-cols-1 gap-4">
                   <button
@@ -151,14 +154,14 @@ export default function BuildDetailPage() {
                   >
                     Load This Build
                   </button>
-                  
+
                   <button
                     onClick={() => window.print()}
                     className="text-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
                   >
                     Print Parts List
                   </button>
-                  
+
                   <a
                     href="#"
                     className="text-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
@@ -166,7 +169,7 @@ export default function BuildDetailPage() {
                     Purchase Parts
                   </a>
                 </div>
-                
+
                 {!compatibility.compatible && (
                   <div className="mt-6 p-4 rounded-md bg-red-50">
                     <div className="flex">
@@ -191,7 +194,7 @@ export default function BuildDetailPage() {
           </div>
         </div>
       </main>
-      
+
       <Footer />
     </div>
   );

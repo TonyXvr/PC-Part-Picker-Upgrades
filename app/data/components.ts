@@ -1,14 +1,15 @@
 // This file contains mock data for PC components
+import { RetailerPrice, scrapePricesForComponent } from "~/utils/priceScraper";
 
-export type ComponentCategory = 
-  | 'cpu' 
-  | 'cpu-cooler' 
-  | 'motherboard' 
-  | 'memory' 
-  | 'storage' 
-  | 'video-card' 
-  | 'case' 
-  | 'power-supply' 
+export type ComponentCategory =
+  | 'cpu'
+  | 'cpu-cooler'
+  | 'motherboard'
+  | 'memory'
+  | 'storage'
+  | 'video-card'
+  | 'case'
+  | 'power-supply'
   | 'monitor';
 
 export interface Component {
@@ -17,10 +18,11 @@ export interface Component {
   name: string;
   brand: string;
   model: string;
-  price: number;
+  price: number; // Base/MSRP price
   image: string;
   specs: Record<string, string | number | boolean>;
   compatibilityFactors: Record<string, string | number | boolean>;
+  retailerPrices?: RetailerPrice[]; // Prices from different retailers
 }
 
 export interface Build {
@@ -856,6 +858,46 @@ export function getComponentById(id: string): Component | undefined {
   return components.find(component => component.id === id);
 }
 
+// Fetch retailer prices for a component
+export async function fetchRetailerPrices(component: Component): Promise<Component> {
+  // Clone the component to avoid modifying the original
+  const updatedComponent = { ...component };
+
+  try {
+    // Fetch prices from retailers
+    const prices = await scrapePricesForComponent(
+      component.brand,
+      component.model,
+      component.category
+    );
+
+    // Update the component with the new prices
+    updatedComponent.retailerPrices = prices;
+
+    return updatedComponent;
+  } catch (error) {
+    console.error(`Error fetching prices for ${component.name}:`, error);
+    return component; // Return the original component if there's an error
+  }
+}
+
+// Fetch retailer prices for all components in a build
+export async function fetchPricesForBuild(build: Build): Promise<Build> {
+  const updatedBuild = { ...build };
+  const updatedComponents: Partial<Record<ComponentCategory, Component>> = {};
+
+  // Fetch prices for each component in parallel
+  const promises = Object.entries(build.components).map(async ([category, component]) => {
+    const updatedComponent = await fetchRetailerPrices(component);
+    updatedComponents[category as ComponentCategory] = updatedComponent;
+  });
+
+  await Promise.all(promises);
+
+  updatedBuild.components = updatedComponents;
+  return updatedBuild;
+}
+
 // Get sample builds
 export function getSampleBuilds(): Build[] {
   return sampleBuilds;
@@ -869,7 +911,7 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
   if (build.cpu && build.motherboard) {
     const cpuSocket = build.cpu.compatibilityFactors.socket as string;
     const motherboardSocket = build.motherboard.compatibilityFactors.socket as string;
-    
+
     if (cpuSocket !== motherboardSocket) {
       issues.push(`CPU socket (${cpuSocket}) is not compatible with motherboard socket (${motherboardSocket})`);
     }
@@ -879,7 +921,7 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
   if (build.memory && build.motherboard) {
     const memoryType = build.memory.compatibilityFactors.memoryType as string;
     const motherboardMemoryType = build.motherboard.compatibilityFactors.memoryType as string;
-    
+
     if (memoryType !== motherboardMemoryType) {
       issues.push(`Memory type (${memoryType}) is not compatible with motherboard memory type (${motherboardMemoryType})`);
     }
@@ -889,7 +931,7 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
   if (build.case && build.motherboard) {
     const caseFormFactors = build.case.compatibilityFactors.formFactor as string[];
     const motherboardFormFactor = build.motherboard.compatibilityFactors.formFactor as string;
-    
+
     if (!caseFormFactors.includes(motherboardFormFactor)) {
       issues.push(`Motherboard form factor (${motherboardFormFactor}) is not compatible with case supported form factors (${caseFormFactors.join(', ')})`);
     }
@@ -899,7 +941,7 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
   if (build.case && build['video-card']) {
     const maxGpuLength = build.case.compatibilityFactors.maxGpuLength as number;
     const gpuLength = build['video-card'].compatibilityFactors.length as number;
-    
+
     if (gpuLength > maxGpuLength) {
       issues.push(`GPU length (${gpuLength}mm) exceeds case maximum GPU length (${maxGpuLength}mm)`);
     }
@@ -909,7 +951,7 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
   if (build.case && build['cpu-cooler'] && build['cpu-cooler'].specs.type === 'Air') {
     const maxCoolerHeight = build.case.compatibilityFactors.maxCpuCoolerHeight as number;
     const coolerHeight = build['cpu-cooler'].compatibilityFactors.height as number;
-    
+
     if (coolerHeight > maxCoolerHeight) {
       issues.push(`CPU cooler height (${coolerHeight}mm) exceeds case maximum cooler height (${maxCoolerHeight}mm)`);
     }
@@ -919,7 +961,7 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
   if (build['power-supply'] && build['video-card']) {
     const psuWattage = build['power-supply'].compatibilityFactors.wattage as number;
     const gpuPowerRequirement = build['video-card'].compatibilityFactors.powerRequirement as number;
-    
+
     if (psuWattage < gpuPowerRequirement) {
       issues.push(`Power supply wattage (${psuWattage}W) is less than recommended for GPU (${gpuPowerRequirement}W)`);
     }
@@ -933,5 +975,20 @@ export function checkCompatibility(build: Partial<Record<ComponentCategory, Comp
 
 // Calculate total price of a build
 export function calculateTotalPrice(build: Partial<Record<ComponentCategory, Component>>): number {
-  return Object.values(build).reduce((total, component) => total + component.price, 0);
+  return Object.values(build).reduce((total, component) => {
+    // If retailer prices are available, use the best price
+    if (component.retailerPrices && component.retailerPrices.length > 0) {
+      // Find the lowest price that's in stock
+      const inStockPrices = component.retailerPrices.filter(p => p.inStock);
+      if (inStockPrices.length > 0) {
+        const bestPrice = inStockPrices.reduce((min, p) => {
+          const totalPrice = p.price + (p.shippingCost || 0);
+          return totalPrice < min ? totalPrice : min;
+        }, Infinity);
+        return total + bestPrice;
+      }
+    }
+    // Fall back to the base price if no retailer prices are available or all are out of stock
+    return total + component.price;
+  }, 0);
 }

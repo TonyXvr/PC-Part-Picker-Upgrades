@@ -3,7 +3,7 @@ import { useLoaderData, useSubmit } from "@remix-run/react";
 import type { MetaFunction, LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
 import { getCurrentBuild, saveCurrentBuild, clearCurrentBuild } from "~/utils/session";
 import { removeComponentFromBuild, updateBuildName, formatPrice, getTotalWattage } from "~/utils/build";
-import { calculateTotalPrice, checkCompatibility, ComponentCategory } from "~/data/components";
+import { calculateTotalPrice, checkCompatibility, ComponentCategory, fetchPricesForBuild } from "~/data/components";
 import Header from "~/components/Header";
 import Footer from "~/components/Footer";
 import BuildComponentList from "~/components/BuildComponentList";
@@ -22,12 +22,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return redirect("/");
   }
 
-  const totalPrice = calculateTotalPrice(currentBuild.components);
-  const compatibility = checkCompatibility(currentBuild.components);
-  const totalWattage = getTotalWattage(currentBuild);
+  // Fetch prices for all components in the build
+  const buildWithPrices = await fetchPricesForBuild(currentBuild);
+
+  const totalPrice = calculateTotalPrice(buildWithPrices.components);
+  const compatibility = checkCompatibility(buildWithPrices.components);
+  const totalWattage = getTotalWattage(buildWithPrices);
 
   return json({
-    currentBuild,
+    currentBuild: buildWithPrices,
     totalPrice,
     compatibility,
     totalWattage,

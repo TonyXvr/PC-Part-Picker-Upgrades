@@ -11,6 +11,8 @@ node_modules/
 .yarn/install-state.gz
 .npm/
 
+.cache/
+
 # Build/Cache Outputs
 build/
 .cache/

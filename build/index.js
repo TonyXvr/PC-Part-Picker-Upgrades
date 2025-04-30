@@ -134,7 +134,7 @@ import {
 import { useEffect } from "react";
 
 // app/tailwind.css
-var tailwind_default = "/build/_assets/tailwind-BOS3TDWS.css";
+var tailwind_default = "/build/_assets/tailwind-NGXDU5BD.css";
 
 // app/root.tsx
 import { jsxDEV as jsxDEV2 } from "react/jsx-dev-runtime";
@@ -408,6 +408,96 @@ __export(components_category_id_exports, {
 });
 import { json as json2, redirect as redirect2 } from "@remix-run/node";
 import { useLoaderData as useLoaderData2, useSubmit } from "@remix-run/react";
+
+// app/utils/priceScraper.ts
+var retailers = [
+  "Amazon",
+  "Newegg",
+  "Best Buy",
+  "Micro Center",
+  "B&H Photo",
+  "Walmart",
+  "eBay"
+];
+async function scrapePricesForComponent(brand, model, category) {
+  let basePrice = getBasePrice(brand, model, category), prices = [];
+  for (let retailer of retailers)
+    if (Math.random() > 0.3) {
+      let variation = Math.random() * 0.3 - 0.15, price = basePrice * (1 + variation), inStock = Math.random() > 0.2, shippingCost = retailer === "Amazon" || Math.random() > 0.5 ? 0 : Math.floor(Math.random() * 15) + 5;
+      prices.push({
+        retailer,
+        price: Math.round(price * 100) / 100,
+        // Round to 2 decimal places
+        url: generateMockUrl(retailer, brand, model),
+        inStock,
+        shippingCost,
+        lastUpdated: /* @__PURE__ */ new Date()
+      });
+    }
+  return prices.sort((a, b) => {
+    let totalA = a.price + (a.shippingCost || 0), totalB = b.price + (b.shippingCost || 0);
+    return totalA - totalB;
+  });
+}
+function getBasePrice(brand, model, category) {
+  let categoryBasePrices = {
+    cpu: 300,
+    motherboard: 200,
+    memory: 100,
+    "video-card": 500,
+    storage: 120,
+    case: 100,
+    "power-supply": 120,
+    "cpu-cooler": 80,
+    monitor: 300
+  }, brandMultipliers = {
+    AMD: 0.9,
+    Intel: 1.1,
+    NVIDIA: 1.2,
+    ASUS: 1.1,
+    MSI: 1.05,
+    Gigabyte: 1,
+    Corsair: 1.1,
+    "G.Skill": 1,
+    Crucial: 0.9,
+    "Western Digital": 1,
+    Seagate: 0.95,
+    NZXT: 1.1,
+    "Fractal Design": 1.05,
+    "Lian Li": 1.15,
+    EVGA: 1.05,
+    Seasonic: 1,
+    "be quiet!": 1.1,
+    Noctua: 1.2,
+    LG: 1.1,
+    Dell: 1
+  }, basePrice = categoryBasePrices[category] || 100, brandMultiplier = brandMultipliers[brand] || 1;
+  return basePrice * brandMultiplier;
+}
+function generateMockUrl(retailer, brand, model) {
+  let formattedBrand = brand.toLowerCase().replace(/[^a-z0-9]/g, "-"), formattedModel = model.toLowerCase().replace(/[^a-z0-9]/g, "-");
+  return `https://www.${{
+    Amazon: "amazon.com",
+    Newegg: "newegg.com",
+    "Best Buy": "bestbuy.com",
+    "Micro Center": "microcenter.com",
+    "B&H Photo": "bhphotovideo.com",
+    Walmart: "walmart.com",
+    eBay: "ebay.com"
+  }[retailer] || "example.com"}/product/${formattedBrand}-${formattedModel}`;
+}
+function getBestPrice(prices) {
+  if (prices.length === 0)
+    return null;
+  let inStockPrices = prices.filter((p) => p.inStock);
+  return inStockPrices.length === 0 ? null : inStockPrices.sort((a, b) => {
+    let totalA = a.price + (a.shippingCost || 0), totalB = b.price + (b.shippingCost || 0);
+    return totalA - totalB;
+  })[0];
+}
+function getTotalPrice(price) {
+  return price.price + (price.shippingCost || 0);
+}
 
 // app/data/components.ts
 var cpus = [
@@ -1217,6 +1307,26 @@ function getComponentsByCategory(category) {
 function getComponentById(id) {
   return components.find((component) => component.id === id);
 }
+async function fetchRetailerPrices(component) {
+  let updatedComponent = { ...component };
+  try {
+    let prices = await scrapePricesForComponent(
+      component.brand,
+      component.model,
+      component.category
+    );
+    return updatedComponent.retailerPrices = prices, updatedComponent;
+  } catch (error) {
+    return console.error(`Error fetching prices for ${component.name}:`, error), component;
+  }
+}
+async function fetchPricesForBuild(build) {
+  let updatedBuild = { ...build }, updatedComponents = {}, promises = Object.entries(build.components).map(async ([category, component]) => {
+    let updatedComponent = await fetchRetailerPrices(component);
+    updatedComponents[category] = updatedComponent;
+  });
+  return await Promise.all(promises), updatedBuild.components = updatedComponents, updatedBuild;
+}
 function getSampleBuilds() {
   return sampleBuilds;
 }
@@ -1252,7 +1362,19 @@ function checkCompatibility(build) {
   };
 }
 function calculateTotalPrice(build) {
-  return Object.values(build).reduce((total, component) => total + component.price, 0);
+  return Object.values(build).reduce((total, component) => {
+    if (component.retailerPrices && component.retailerPrices.length > 0) {
+      let inStockPrices = component.retailerPrices.filter((p) => p.inStock);
+      if (inStockPrices.length > 0) {
+        let bestPrice = inStockPrices.reduce((min, p) => {
+          let totalPrice = p.price + (p.shippingCost || 0);
+          return totalPrice < min ? totalPrice : min;
+        }, 1 / 0);
+        return total + bestPrice;
+      }
+    }
+    return total + component.price;
+  }, 0);
 }
 
 // app/utils/session.ts
@@ -2047,9 +2169,9 @@ async function loader2({ params, request }) {
   let component = getComponentById(id);
   if (!component)
     throw new Response("Component not found", { status: 404 });
-  let currentBuild = await getCurrentBuild(request), isInBuild = currentBuild?.components[component.category]?.id === component.id;
+  let componentWithPrices = await fetchRetailerPrices(component), currentBuild = await getCurrentBuild(request), isInBuild = currentBuild?.components[component.category]?.id === component.id;
   return json2({
-    component,
+    component: componentWithPrices,
     currentBuild,
     isInBuild
   });
@@ -2096,24 +2218,24 @@ function ComponentDetailPage() {
   return /* @__PURE__ */ jsxDEV6("div", { className: "flex flex-col min-h-screen", children: [
     /* @__PURE__ */ jsxDEV6(Header, { currentBuild }, void 0, !1, {
       fileName: "app/routes/components.$category.$id.tsx",
-      lineNumber: 128,
+      lineNumber: 132,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV6("main", { className: "flex-grow max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8", children: /* @__PURE__ */ jsxDEV6("div", { className: "grid grid-cols-1 gap-8 lg:grid-cols-4", children: [
       /* @__PURE__ */ jsxDEV6("div", { className: "lg:col-span-1", children: /* @__PURE__ */ jsxDEV6(CategorySelector, { activeCategory: component.category }, void 0, !1, {
         fileName: "app/routes/components.$category.$id.tsx",
-        lineNumber: 133,
+        lineNumber: 137,
         columnNumber: 13
       }, this) }, void 0, !1, {
         fileName: "app/routes/components.$category.$id.tsx",
-        lineNumber: 132,
+        lineNumber: 136,
         columnNumber: 11
       }, this),
       /* @__PURE__ */ jsxDEV6("div", { className: "lg:col-span-3", children: /* @__PURE__ */ jsxDEV6("div", { className: "bg-white shadow rounded-lg overflow-hidden", children: [
         /* @__PURE__ */ jsxDEV6("div", { className: "px-4 py-5 sm:px-6 bg-gray-50", children: [
           /* @__PURE__ */ jsxDEV6("h1", { className: "text-2xl font-bold text-gray-900", children: component.name }, void 0, !1, {
             fileName: "app/routes/components.$category.$id.tsx",
-            lineNumber: 139,
+            lineNumber: 143,
             columnNumber: 17
           }, this),
           /* @__PURE__ */ jsxDEV6("p", { className: "mt-1 text-sm text-gray-500", children: [
@@ -2122,12 +2244,12 @@ function ComponentDetailPage() {
             component.model
           ] }, void 0, !0, {
             fileName: "app/routes/components.$category.$id.tsx",
-            lineNumber: 142,
+            lineNumber: 146,
             columnNumber: 17
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/components.$category.$id.tsx",
-          lineNumber: 138,
+          lineNumber: 142,
           columnNumber: 15
         }, this),
         /* @__PURE__ */ jsxDEV6("div", { className: "px-4 py-5 sm:p-6", children: [
@@ -2143,50 +2265,179 @@ function ComponentDetailPage() {
               !1,
               {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 150,
+                lineNumber: 154,
                 columnNumber: 21
               },
               this
             ) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 149,
+              lineNumber: 153,
               columnNumber: 19
             }, this),
             /* @__PURE__ */ jsxDEV6("div", { children: [
               /* @__PURE__ */ jsxDEV6("div", { className: "mb-6", children: [
                 /* @__PURE__ */ jsxDEV6("h2", { className: "text-lg font-medium text-gray-900 mb-2", children: "Price" }, void 0, !1, {
                   fileName: "app/routes/components.$category.$id.tsx",
-                  lineNumber: 159,
+                  lineNumber: 163,
                   columnNumber: 23
                 }, this),
                 /* @__PURE__ */ jsxDEV6("p", { className: "text-3xl font-bold text-gray-900", children: formatPrice(component.price) }, void 0, !1, {
                   fileName: "app/routes/components.$category.$id.tsx",
-                  lineNumber: 160,
+                  lineNumber: 164,
                   columnNumber: 23
+                }, this),
+                /* @__PURE__ */ jsxDEV6("p", { className: "text-sm text-gray-500 mt-1", children: "MSRP" }, void 0, !1, {
+                  fileName: "app/routes/components.$category.$id.tsx",
+                  lineNumber: 165,
+                  columnNumber: 23
+                }, this),
+                component.retailerPrices && component.retailerPrices.length > 0 && /* @__PURE__ */ jsxDEV6("div", { className: "mt-4", children: [
+                  /* @__PURE__ */ jsxDEV6("h3", { className: "text-md font-medium text-gray-900 mb-2", children: "Retailer Prices" }, void 0, !1, {
+                    fileName: "app/routes/components.$category.$id.tsx",
+                    lineNumber: 169,
+                    columnNumber: 27
+                  }, this),
+                  /* @__PURE__ */ jsxDEV6("div", { className: "bg-gray-50 rounded-lg overflow-hidden border border-gray-200", children: /* @__PURE__ */ jsxDEV6("table", { className: "min-w-full divide-y divide-gray-200", children: [
+                    /* @__PURE__ */ jsxDEV6("thead", { className: "bg-gray-100", children: /* @__PURE__ */ jsxDEV6("tr", { children: [
+                      /* @__PURE__ */ jsxDEV6("th", { scope: "col", className: "px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Retailer" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 174,
+                        columnNumber: 35
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("th", { scope: "col", className: "px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Price" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 177,
+                        columnNumber: 35
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("th", { scope: "col", className: "px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Shipping" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 180,
+                        columnNumber: 35
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("th", { scope: "col", className: "px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Total" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 183,
+                        columnNumber: 35
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("th", { scope: "col", className: "px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider", children: "Stock" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 186,
+                        columnNumber: 35
+                      }, this)
+                    ] }, void 0, !0, {
+                      fileName: "app/routes/components.$category.$id.tsx",
+                      lineNumber: 173,
+                      columnNumber: 33
+                    }, this) }, void 0, !1, {
+                      fileName: "app/routes/components.$category.$id.tsx",
+                      lineNumber: 172,
+                      columnNumber: 31
+                    }, this),
+                    /* @__PURE__ */ jsxDEV6("tbody", { className: "bg-white divide-y divide-gray-200", children: component.retailerPrices.map((price, index) => /* @__PURE__ */ jsxDEV6("tr", { className: price.inStock ? "" : "bg-gray-50", children: [
+                      /* @__PURE__ */ jsxDEV6("td", { className: "px-3 py-2 whitespace-nowrap text-sm", children: /* @__PURE__ */ jsxDEV6(
+                        "a",
+                        {
+                          href: price.url,
+                          target: "_blank",
+                          rel: "noopener noreferrer",
+                          className: "text-blue-600 hover:text-blue-800",
+                          children: price.retailer
+                        },
+                        void 0,
+                        !1,
+                        {
+                          fileName: "app/routes/components.$category.$id.tsx",
+                          lineNumber: 195,
+                          columnNumber: 39
+                        },
+                        this
+                      ) }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 194,
+                        columnNumber: 37
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("td", { className: "px-3 py-2 whitespace-nowrap text-sm", children: formatPrice(price.price) }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 204,
+                        columnNumber: 37
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("td", { className: "px-3 py-2 whitespace-nowrap text-sm", children: price.shippingCost ? formatPrice(price.shippingCost) : "Free" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 207,
+                        columnNumber: 37
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("td", { className: "px-3 py-2 whitespace-nowrap text-sm font-medium", children: formatPrice(getTotalPrice(price)) }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 210,
+                        columnNumber: 37
+                      }, this),
+                      /* @__PURE__ */ jsxDEV6("td", { className: "px-3 py-2 whitespace-nowrap text-sm", children: price.inStock ? /* @__PURE__ */ jsxDEV6("span", { className: "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800", children: "In Stock" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 215,
+                        columnNumber: 41
+                      }, this) : /* @__PURE__ */ jsxDEV6("span", { className: "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800", children: "Out of Stock" }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 219,
+                        columnNumber: 41
+                      }, this) }, void 0, !1, {
+                        fileName: "app/routes/components.$category.$id.tsx",
+                        lineNumber: 213,
+                        columnNumber: 37
+                      }, this)
+                    ] }, index, !0, {
+                      fileName: "app/routes/components.$category.$id.tsx",
+                      lineNumber: 193,
+                      columnNumber: 35
+                    }, this)) }, void 0, !1, {
+                      fileName: "app/routes/components.$category.$id.tsx",
+                      lineNumber: 191,
+                      columnNumber: 31
+                    }, this)
+                  ] }, void 0, !0, {
+                    fileName: "app/routes/components.$category.$id.tsx",
+                    lineNumber: 171,
+                    columnNumber: 29
+                  }, this) }, void 0, !1, {
+                    fileName: "app/routes/components.$category.$id.tsx",
+                    lineNumber: 170,
+                    columnNumber: 27
+                  }, this),
+                  /* @__PURE__ */ jsxDEV6("p", { className: "text-xs text-gray-500 mt-2", children: [
+                    "Prices last updated: ",
+                    new Date(component.retailerPrices[0].lastUpdated).toLocaleString()
+                  ] }, void 0, !0, {
+                    fileName: "app/routes/components.$category.$id.tsx",
+                    lineNumber: 229,
+                    columnNumber: 27
+                  }, this)
+                ] }, void 0, !0, {
+                  fileName: "app/routes/components.$category.$id.tsx",
+                  lineNumber: 168,
+                  columnNumber: 25
                 }, this)
               ] }, void 0, !0, {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 158,
+                lineNumber: 162,
                 columnNumber: 21
               }, this),
               /* @__PURE__ */ jsxDEV6("div", { className: "mb-6", children: [
                 /* @__PURE__ */ jsxDEV6("h2", { className: "text-lg font-medium text-gray-900 mb-2", children: "Category" }, void 0, !1, {
                   fileName: "app/routes/components.$category.$id.tsx",
-                  lineNumber: 164,
+                  lineNumber: 237,
                   columnNumber: 23
                 }, this),
                 /* @__PURE__ */ jsxDEV6("div", { className: "flex", children: /* @__PURE__ */ jsxDEV6("span", { className: "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800", children: component.category }, void 0, !1, {
                   fileName: "app/routes/components.$category.$id.tsx",
-                  lineNumber: 166,
+                  lineNumber: 239,
                   columnNumber: 25
                 }, this) }, void 0, !1, {
                   fileName: "app/routes/components.$category.$id.tsx",
-                  lineNumber: 165,
+                  lineNumber: 238,
                   columnNumber: 23
                 }, this)
               ] }, void 0, !0, {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 163,
+                lineNumber: 236,
                 columnNumber: 21
               }, this),
               /* @__PURE__ */ jsxDEV6(
@@ -2201,130 +2452,130 @@ function ComponentDetailPage() {
                 !1,
                 {
                   fileName: "app/routes/components.$category.$id.tsx",
-                  lineNumber: 172,
+                  lineNumber: 245,
                   columnNumber: 21
                 },
                 this
               )
             ] }, void 0, !0, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 157,
+              lineNumber: 161,
               columnNumber: 19
             }, this)
           ] }, void 0, !0, {
             fileName: "app/routes/components.$category.$id.tsx",
-            lineNumber: 148,
+            lineNumber: 152,
             columnNumber: 17
           }, this),
           /* @__PURE__ */ jsxDEV6("div", { className: "mt-8", children: [
             /* @__PURE__ */ jsxDEV6("h2", { className: "text-lg font-medium text-gray-900 mb-4", children: "Specifications" }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 187,
+              lineNumber: 260,
               columnNumber: 19
             }, this),
             /* @__PURE__ */ jsxDEV6("div", { className: "bg-gray-50 rounded-lg overflow-hidden", children: /* @__PURE__ */ jsxDEV6("div", { className: "border-t border-gray-200 px-4 py-5 sm:p-0", children: /* @__PURE__ */ jsxDEV6("dl", { className: "sm:divide-y sm:divide-gray-200", children: Object.entries(component.specs).map(([key, value]) => /* @__PURE__ */ jsxDEV6("div", { className: "py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6", children: [
               /* @__PURE__ */ jsxDEV6("dt", { className: "text-sm font-medium text-gray-500", children: formatSpecKey(key) }, void 0, !1, {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 194,
+                lineNumber: 267,
                 columnNumber: 29
               }, this),
               /* @__PURE__ */ jsxDEV6("dd", { className: "mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2", children: formatSpecValue(key, value) }, void 0, !1, {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 197,
+                lineNumber: 270,
                 columnNumber: 29
               }, this)
             ] }, key, !0, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 193,
+              lineNumber: 266,
               columnNumber: 27
             }, this)) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 191,
+              lineNumber: 264,
               columnNumber: 23
             }, this) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 190,
+              lineNumber: 263,
               columnNumber: 21
             }, this) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 189,
+              lineNumber: 262,
               columnNumber: 19
             }, this)
           ] }, void 0, !0, {
             fileName: "app/routes/components.$category.$id.tsx",
-            lineNumber: 186,
+            lineNumber: 259,
             columnNumber: 17
           }, this),
           /* @__PURE__ */ jsxDEV6("div", { className: "mt-8", children: [
             /* @__PURE__ */ jsxDEV6("h2", { className: "text-lg font-medium text-gray-900 mb-4", children: "Compatibility Factors" }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 208,
+              lineNumber: 281,
               columnNumber: 19
             }, this),
             /* @__PURE__ */ jsxDEV6("div", { className: "bg-gray-50 rounded-lg overflow-hidden", children: /* @__PURE__ */ jsxDEV6("div", { className: "border-t border-gray-200 px-4 py-5 sm:p-0", children: /* @__PURE__ */ jsxDEV6("dl", { className: "sm:divide-y sm:divide-gray-200", children: Object.entries(component.compatibilityFactors).map(([key, value]) => /* @__PURE__ */ jsxDEV6("div", { className: "py-4 sm:py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6", children: [
               /* @__PURE__ */ jsxDEV6("dt", { className: "text-sm font-medium text-gray-500", children: formatSpecKey(key) }, void 0, !1, {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 215,
+                lineNumber: 288,
                 columnNumber: 29
               }, this),
               /* @__PURE__ */ jsxDEV6("dd", { className: "mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2", children: Array.isArray(value) ? value.join(", ") : formatSpecValue(key, value) }, void 0, !1, {
                 fileName: "app/routes/components.$category.$id.tsx",
-                lineNumber: 218,
+                lineNumber: 291,
                 columnNumber: 29
               }, this)
             ] }, key, !0, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 214,
+              lineNumber: 287,
               columnNumber: 27
             }, this)) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 212,
+              lineNumber: 285,
               columnNumber: 23
             }, this) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 211,
+              lineNumber: 284,
               columnNumber: 21
             }, this) }, void 0, !1, {
               fileName: "app/routes/components.$category.$id.tsx",
-              lineNumber: 210,
+              lineNumber: 283,
               columnNumber: 19
             }, this)
           ] }, void 0, !0, {
             fileName: "app/routes/components.$category.$id.tsx",
-            lineNumber: 207,
+            lineNumber: 280,
             columnNumber: 17
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/components.$category.$id.tsx",
-          lineNumber: 147,
+          lineNumber: 151,
           columnNumber: 15
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/components.$category.$id.tsx",
-        lineNumber: 137,
+        lineNumber: 141,
         columnNumber: 13
       }, this) }, void 0, !1, {
         fileName: "app/routes/components.$category.$id.tsx",
-        lineNumber: 136,
+        lineNumber: 140,
         columnNumber: 11
       }, this)
     ] }, void 0, !0, {
       fileName: "app/routes/components.$category.$id.tsx",
-      lineNumber: 131,
+      lineNumber: 135,
       columnNumber: 9
     }, this) }, void 0, !1, {
       fileName: "app/routes/components.$category.$id.tsx",
-      lineNumber: 130,
+      lineNumber: 134,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV6(Footer, {}, void 0, !1, {
       fileName: "app/routes/components.$category.$id.tsx",
-      lineNumber: 235,
+      lineNumber: 308,
       columnNumber: 7
     }, this)
   ] }, void 0, !0, {
     fileName: "app/routes/components.$category.$id.tsx",
-    lineNumber: 127,
+    lineNumber: 131,
     columnNumber: 5
   }, this);
 }
@@ -2359,18 +2610,18 @@ function ComponentCard({ component, isInBuild = !1, onAddToBuild }) {
       !1,
       {
         fileName: "app/components/ComponentCard.tsx",
-        lineNumber: 22,
+        lineNumber: 23,
         columnNumber: 11
       },
       this
     ) }, void 0, !1, {
       fileName: "app/components/ComponentCard.tsx",
-      lineNumber: 21,
+      lineNumber: 22,
       columnNumber: 9
     }, this),
     /* @__PURE__ */ jsxDEV7("h3", { className: "text-lg font-medium text-gray-900 mb-1 truncate", children: component.name }, void 0, !1, {
       fileName: "app/components/ComponentCard.tsx",
-      lineNumber: 29,
+      lineNumber: 30,
       columnNumber: 9
     }, this),
     /* @__PURE__ */ jsxDEV7("p", { className: "text-sm text-gray-500 mb-2", children: [
@@ -2379,27 +2630,78 @@ function ComponentCard({ component, isInBuild = !1, onAddToBuild }) {
       component.model
     ] }, void 0, !0, {
       fileName: "app/components/ComponentCard.tsx",
-      lineNumber: 33,
+      lineNumber: 34,
       columnNumber: 9
     }, this),
     /* @__PURE__ */ jsxDEV7("div", { className: "flex justify-between items-center mb-4", children: [
-      /* @__PURE__ */ jsxDEV7("span", { className: "text-xl font-bold text-gray-900", children: formatPrice(component.price) }, void 0, !1, {
+      /* @__PURE__ */ jsxDEV7("div", { children: component.retailerPrices && component.retailerPrices.length > 0 ? (() => {
+        let bestPrice = getBestPrice(component.retailerPrices);
+        return bestPrice ? /* @__PURE__ */ jsxDEV7("div", { children: [
+          /* @__PURE__ */ jsxDEV7("span", { className: "text-xl font-bold text-gray-900", children: formatPrice(getTotalPrice(bestPrice)) }, void 0, !1, {
+            fileName: "app/components/ComponentCard.tsx",
+            lineNumber: 46,
+            columnNumber: 23
+          }, this),
+          /* @__PURE__ */ jsxDEV7("div", { className: "text-xs text-gray-500", children: [
+            "from ",
+            bestPrice.retailer
+          ] }, void 0, !0, {
+            fileName: "app/components/ComponentCard.tsx",
+            lineNumber: 49,
+            columnNumber: 23
+          }, this)
+        ] }, void 0, !0, {
+          fileName: "app/components/ComponentCard.tsx",
+          lineNumber: 45,
+          columnNumber: 21
+        }, this) : /* @__PURE__ */ jsxDEV7("div", { children: [
+          /* @__PURE__ */ jsxDEV7("span", { className: "text-xl font-bold text-gray-900", children: formatPrice(component.price) }, void 0, !1, {
+            fileName: "app/components/ComponentCard.tsx",
+            lineNumber: 57,
+            columnNumber: 23
+          }, this),
+          /* @__PURE__ */ jsxDEV7("div", { className: "text-xs text-gray-500", children: "MSRP" }, void 0, !1, {
+            fileName: "app/components/ComponentCard.tsx",
+            lineNumber: 60,
+            columnNumber: 23
+          }, this)
+        ] }, void 0, !0, {
+          fileName: "app/components/ComponentCard.tsx",
+          lineNumber: 56,
+          columnNumber: 21
+        }, this);
+      })() : /* @__PURE__ */ jsxDEV7("div", { children: [
+        /* @__PURE__ */ jsxDEV7("span", { className: "text-xl font-bold text-gray-900", children: formatPrice(component.price) }, void 0, !1, {
+          fileName: "app/components/ComponentCard.tsx",
+          lineNumber: 67,
+          columnNumber: 17
+        }, this),
+        /* @__PURE__ */ jsxDEV7("div", { className: "text-xs text-gray-500", children: "MSRP" }, void 0, !1, {
+          fileName: "app/components/ComponentCard.tsx",
+          lineNumber: 70,
+          columnNumber: 17
+        }, this)
+      ] }, void 0, !0, {
         fileName: "app/components/ComponentCard.tsx",
-        lineNumber: 38,
+        lineNumber: 66,
+        columnNumber: 15
+      }, this) }, void 0, !1, {
+        fileName: "app/components/ComponentCard.tsx",
+        lineNumber: 39,
         columnNumber: 11
       }, this),
       /* @__PURE__ */ jsxDEV7("div", { className: "flex space-x-1", children: /* @__PURE__ */ jsxDEV7("span", { className: "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800", children: component.category }, void 0, !1, {
         fileName: "app/components/ComponentCard.tsx",
-        lineNumber: 43,
+        lineNumber: 76,
         columnNumber: 13
       }, this) }, void 0, !1, {
         fileName: "app/components/ComponentCard.tsx",
-        lineNumber: 42,
+        lineNumber: 75,
         columnNumber: 11
       }, this)
     ] }, void 0, !0, {
       fileName: "app/components/ComponentCard.tsx",
-      lineNumber: 37,
+      lineNumber: 38,
       columnNumber: 9
     }, this),
     /* @__PURE__ */ jsxDEV7("div", { className: "grid grid-cols-2 gap-2", children: [
@@ -2414,7 +2716,7 @@ function ComponentCard({ component, isInBuild = !1, onAddToBuild }) {
         !1,
         {
           fileName: "app/components/ComponentCard.tsx",
-          lineNumber: 50,
+          lineNumber: 83,
           columnNumber: 11
         },
         this
@@ -2431,23 +2733,23 @@ function ComponentCard({ component, isInBuild = !1, onAddToBuild }) {
         !1,
         {
           fileName: "app/components/ComponentCard.tsx",
-          lineNumber: 58,
+          lineNumber: 91,
           columnNumber: 13
         },
         this
       )
     ] }, void 0, !0, {
       fileName: "app/components/ComponentCard.tsx",
-      lineNumber: 49,
+      lineNumber: 82,
       columnNumber: 9
     }, this)
   ] }, void 0, !0, {
     fileName: "app/components/ComponentCard.tsx",
-    lineNumber: 20,
+    lineNumber: 21,
     columnNumber: 7
   }, this) }, void 0, !1, {
     fileName: "app/components/ComponentCard.tsx",
-    lineNumber: 19,
+    lineNumber: 20,
     columnNumber: 5
   }, this);
 }
@@ -2478,10 +2780,12 @@ async function loader3({ params, request }) {
   let category = params.category;
   if (!category)
     return redirect3("/components/cpu");
-  let components2 = getComponentsByCategory(category), currentBuild = await getCurrentBuild(request), currentComponent = currentBuild?.components[category];
+  let components2 = getComponentsByCategory(category), currentBuild = await getCurrentBuild(request), currentComponent = currentBuild?.components[category], componentsWithPrices = await Promise.all(
+    components2.map((component) => fetchRetailerPrices(component))
+  );
   return json3({
     category,
-    components: components2,
+    components: componentsWithPrices,
     currentBuild,
     currentComponent
   });
@@ -2511,23 +2815,23 @@ function ComponentCategoryPage() {
   return /* @__PURE__ */ jsxDEV8("div", { className: "flex flex-col min-h-screen", children: [
     /* @__PURE__ */ jsxDEV8(Header, { currentBuild }, void 0, !1, {
       fileName: "app/routes/components.$category.tsx",
-      lineNumber: 100,
+      lineNumber: 105,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV8("main", { className: "flex-grow max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8", children: [
       /* @__PURE__ */ jsxDEV8("h1", { className: "text-3xl font-extrabold text-gray-900 mb-8", children: getCategoryDisplayName(category) }, void 0, !1, {
         fileName: "app/routes/components.$category.tsx",
-        lineNumber: 103,
+        lineNumber: 108,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDEV8("div", { className: "grid grid-cols-1 gap-8 lg:grid-cols-4", children: [
         /* @__PURE__ */ jsxDEV8("div", { className: "lg:col-span-1", children: /* @__PURE__ */ jsxDEV8(CategorySelector, { activeCategory: category }, void 0, !1, {
           fileName: "app/routes/components.$category.tsx",
-          lineNumber: 109,
+          lineNumber: 114,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/components.$category.tsx",
-          lineNumber: 108,
+          lineNumber: 113,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV8("div", { className: "lg:col-span-3", children: [
@@ -2542,47 +2846,47 @@ function ComponentCategoryPage() {
             !1,
             {
               fileName: "app/routes/components.$category.tsx",
-              lineNumber: 115,
+              lineNumber: 120,
               columnNumber: 17
             },
             this
           )) }, void 0, !1, {
             fileName: "app/routes/components.$category.tsx",
-            lineNumber: 113,
+            lineNumber: 118,
             columnNumber: 13
           }, this),
           components2.length === 0 && /* @__PURE__ */ jsxDEV8("div", { className: "bg-white shadow rounded-lg p-6 text-center", children: /* @__PURE__ */ jsxDEV8("p", { className: "text-gray-500", children: "No components found in this category." }, void 0, !1, {
             fileName: "app/routes/components.$category.tsx",
-            lineNumber: 126,
+            lineNumber: 131,
             columnNumber: 17
           }, this) }, void 0, !1, {
             fileName: "app/routes/components.$category.tsx",
-            lineNumber: 125,
+            lineNumber: 130,
             columnNumber: 15
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/components.$category.tsx",
-          lineNumber: 112,
+          lineNumber: 117,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/components.$category.tsx",
-        lineNumber: 107,
+        lineNumber: 112,
         columnNumber: 9
       }, this)
     ] }, void 0, !0, {
       fileName: "app/routes/components.$category.tsx",
-      lineNumber: 102,
+      lineNumber: 107,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV8(Footer, {}, void 0, !1, {
       fileName: "app/routes/components.$category.tsx",
-      lineNumber: 133,
+      lineNumber: 138,
       columnNumber: 7
     }, this)
   ] }, void 0, !0, {
     fileName: "app/routes/components.$category.tsx",
-    lineNumber: 99,
+    lineNumber: 104,
     columnNumber: 5
   }, this);
 }
@@ -2600,7 +2904,7 @@ import { useLoaderData as useLoaderData4, useSubmit as useSubmit3 } from "@remix
 
 // app/components/BuildComponentList.tsx
 import { Link as Link4 } from "@remix-run/react";
-import { jsxDEV as jsxDEV9 } from "react/jsx-dev-runtime";
+import { Fragment as Fragment2, jsxDEV as jsxDEV9 } from "react/jsx-dev-runtime";
 var categoryNames = {
   cpu: "CPU",
   "cpu-cooler": "CPU Cooler",
@@ -2626,42 +2930,42 @@ function BuildComponentList({ build, onRemoveComponent }) {
   return /* @__PURE__ */ jsxDEV9("div", { className: "bg-white shadow rounded-lg overflow-hidden", children: [
     /* @__PURE__ */ jsxDEV9("div", { className: "px-4 py-5 sm:px-6 bg-gray-50", children: /* @__PURE__ */ jsxDEV9("h3", { className: "text-lg font-medium leading-6 text-gray-900", children: "Choose Your Parts" }, void 0, !1, {
       fileName: "app/components/BuildComponentList.tsx",
-      lineNumber: 38,
+      lineNumber: 39,
       columnNumber: 9
     }, this) }, void 0, !1, {
       fileName: "app/components/BuildComponentList.tsx",
-      lineNumber: 37,
+      lineNumber: 38,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV9("div", { className: "border-t border-gray-200", children: /* @__PURE__ */ jsxDEV9("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsxDEV9("table", { className: "min-w-full divide-y divide-gray-200", children: [
       /* @__PURE__ */ jsxDEV9("thead", { className: "bg-gray-50", children: /* @__PURE__ */ jsxDEV9("tr", { children: [
         /* @__PURE__ */ jsxDEV9("th", { scope: "col", className: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6", children: "Component" }, void 0, !1, {
           fileName: "app/components/BuildComponentList.tsx",
-          lineNumber: 47,
+          lineNumber: 48,
           columnNumber: 17
         }, this),
         /* @__PURE__ */ jsxDEV9("th", { scope: "col", className: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-3/6", children: "Selection" }, void 0, !1, {
           fileName: "app/components/BuildComponentList.tsx",
-          lineNumber: 50,
+          lineNumber: 51,
           columnNumber: 17
         }, this),
         /* @__PURE__ */ jsxDEV9("th", { scope: "col", className: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6", children: "Price" }, void 0, !1, {
           fileName: "app/components/BuildComponentList.tsx",
-          lineNumber: 53,
+          lineNumber: 54,
           columnNumber: 17
         }, this),
         /* @__PURE__ */ jsxDEV9("th", { scope: "col", className: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6", children: "Action" }, void 0, !1, {
           fileName: "app/components/BuildComponentList.tsx",
-          lineNumber: 56,
+          lineNumber: 57,
           columnNumber: 17
         }, this)
       ] }, void 0, !0, {
         fileName: "app/components/BuildComponentList.tsx",
-        lineNumber: 46,
+        lineNumber: 47,
         columnNumber: 15
       }, this) }, void 0, !1, {
         fileName: "app/components/BuildComponentList.tsx",
-        lineNumber: 45,
+        lineNumber: 46,
         columnNumber: 13
       }, this),
       /* @__PURE__ */ jsxDEV9("tbody", { className: "bg-white divide-y divide-gray-200", children: categoryOrder.map((category) => {
@@ -2669,15 +2973,15 @@ function BuildComponentList({ build, onRemoveComponent }) {
         return /* @__PURE__ */ jsxDEV9("tr", { className: "hover:bg-gray-50", children: [
           /* @__PURE__ */ jsxDEV9("td", { className: "px-4 py-4 whitespace-nowrap", children: /* @__PURE__ */ jsxDEV9("div", { className: "text-sm font-medium text-blue-600", children: /* @__PURE__ */ jsxDEV9(Link4, { to: `/components/${category}`, className: "hover:underline", children: categoryNames[category] }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 69,
+            lineNumber: 70,
             columnNumber: 25
           }, this) }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 68,
+            lineNumber: 69,
             columnNumber: 23
           }, this) }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 67,
+            lineNumber: 68,
             columnNumber: 21
           }, this),
           /* @__PURE__ */ jsxDEV9("td", { className: "px-4 py-4", children: component ? /* @__PURE__ */ jsxDEV9("div", { children: [
@@ -2692,7 +2996,7 @@ function BuildComponentList({ build, onRemoveComponent }) {
               !1,
               {
                 fileName: "app/components/BuildComponentList.tsx",
-                lineNumber: 78,
+                lineNumber: 79,
                 columnNumber: 27
               },
               this
@@ -2703,12 +3007,12 @@ function BuildComponentList({ build, onRemoveComponent }) {
               component.model
             ] }, void 0, !0, {
               fileName: "app/components/BuildComponentList.tsx",
-              lineNumber: 84,
+              lineNumber: 85,
               columnNumber: 27
             }, this)
           ] }, void 0, !0, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 77,
+            lineNumber: 78,
             columnNumber: 25
           }, this) : /* @__PURE__ */ jsxDEV9("div", { className: "flex items-center", children: /* @__PURE__ */ jsxDEV9(
             Link4,
@@ -2718,11 +3022,11 @@ function BuildComponentList({ build, onRemoveComponent }) {
               children: [
                 /* @__PURE__ */ jsxDEV9("svg", { className: "h-4 w-4 mr-1", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV9("path", { fillRule: "evenodd", d: "M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z", clipRule: "evenodd" }, void 0, !1, {
                   fileName: "app/components/BuildComponentList.tsx",
-                  lineNumber: 95,
+                  lineNumber: 96,
                   columnNumber: 31
                 }, this) }, void 0, !1, {
                   fileName: "app/components/BuildComponentList.tsx",
-                  lineNumber: 94,
+                  lineNumber: 95,
                   columnNumber: 29
                 }, this),
                 "Choose a ",
@@ -2733,30 +3037,77 @@ function BuildComponentList({ build, onRemoveComponent }) {
             !0,
             {
               fileName: "app/components/BuildComponentList.tsx",
-              lineNumber: 90,
+              lineNumber: 91,
               columnNumber: 27
             },
             this
           ) }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 89,
+            lineNumber: 90,
             columnNumber: 25
           }, this) }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 75,
+            lineNumber: 76,
             columnNumber: 21
           }, this),
-          /* @__PURE__ */ jsxDEV9("td", { className: "px-4 py-4 whitespace-nowrap", children: component ? /* @__PURE__ */ jsxDEV9("div", { className: "text-sm font-medium text-gray-900", children: formatPrice(component.price) }, void 0, !1, {
+          /* @__PURE__ */ jsxDEV9("td", { className: "px-4 py-4 whitespace-nowrap", children: component ? /* @__PURE__ */ jsxDEV9("div", { children: component.retailerPrices && component.retailerPrices.length > 0 ? /* @__PURE__ */ jsxDEV9(Fragment2, { children: (() => {
+            let bestPrice = getBestPrice(component.retailerPrices);
+            return bestPrice ? /* @__PURE__ */ jsxDEV9(Fragment2, { children: [
+              /* @__PURE__ */ jsxDEV9("div", { className: "text-sm font-medium text-gray-900", children: formatPrice(getTotalPrice(bestPrice)) }, void 0, !1, {
+                fileName: "app/components/BuildComponentList.tsx",
+                lineNumber: 114,
+                columnNumber: 39
+              }, this),
+              /* @__PURE__ */ jsxDEV9("div", { className: "text-xs text-gray-500", children: [
+                "from ",
+                bestPrice.retailer
+              ] }, void 0, !0, {
+                fileName: "app/components/BuildComponentList.tsx",
+                lineNumber: 117,
+                columnNumber: 39
+              }, this)
+            ] }, void 0, !0, {
+              fileName: "app/components/BuildComponentList.tsx",
+              lineNumber: 113,
+              columnNumber: 37
+            }, this) : /* @__PURE__ */ jsxDEV9("div", { className: "text-sm font-medium text-gray-900", children: [
+              formatPrice(component.price),
+              /* @__PURE__ */ jsxDEV9("span", { className: "text-xs text-gray-500 ml-1", children: "(MSRP)" }, void 0, !1, {
+                fileName: "app/components/BuildComponentList.tsx",
+                lineNumber: 126,
+                columnNumber: 39
+              }, this)
+            ] }, void 0, !0, {
+              fileName: "app/components/BuildComponentList.tsx",
+              lineNumber: 124,
+              columnNumber: 37
+            }, this);
+          })() }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 105,
+            lineNumber: 108,
+            columnNumber: 29
+          }, this) : /* @__PURE__ */ jsxDEV9("div", { className: "text-sm font-medium text-gray-900", children: [
+            formatPrice(component.price),
+            /* @__PURE__ */ jsxDEV9("span", { className: "text-xs text-gray-500 ml-1", children: "(MSRP)" }, void 0, !1, {
+              fileName: "app/components/BuildComponentList.tsx",
+              lineNumber: 135,
+              columnNumber: 31
+            }, this)
+          ] }, void 0, !0, {
+            fileName: "app/components/BuildComponentList.tsx",
+            lineNumber: 133,
+            columnNumber: 29
+          }, this) }, void 0, !1, {
+            fileName: "app/components/BuildComponentList.tsx",
+            lineNumber: 106,
             columnNumber: 25
           }, this) : /* @__PURE__ */ jsxDEV9("div", { className: "text-sm text-gray-500", children: "\u2014" }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 109,
+            lineNumber: 140,
             columnNumber: 25
           }, this) }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 103,
+            lineNumber: 104,
             columnNumber: 21
           }, this),
           /* @__PURE__ */ jsxDEV9("td", { className: "px-4 py-4 whitespace-nowrap text-right text-sm font-medium", children: component && onRemoveComponent && /* @__PURE__ */ jsxDEV9(
@@ -2767,11 +3118,11 @@ function BuildComponentList({ build, onRemoveComponent }) {
               "aria-label": `Remove ${categoryNames[category]}`,
               children: /* @__PURE__ */ jsxDEV9("svg", { className: "h-5 w-5", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV9("path", { fillRule: "evenodd", d: "M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z", clipRule: "evenodd" }, void 0, !1, {
                 fileName: "app/components/BuildComponentList.tsx",
-                lineNumber: 121,
+                lineNumber: 152,
                 columnNumber: 29
               }, this) }, void 0, !1, {
                 fileName: "app/components/BuildComponentList.tsx",
-                lineNumber: 120,
+                lineNumber: 151,
                 columnNumber: 27
               }, this)
             },
@@ -2779,47 +3130,47 @@ function BuildComponentList({ build, onRemoveComponent }) {
             !1,
             {
               fileName: "app/components/BuildComponentList.tsx",
-              lineNumber: 115,
+              lineNumber: 146,
               columnNumber: 25
             },
             this
           ) }, void 0, !1, {
             fileName: "app/components/BuildComponentList.tsx",
-            lineNumber: 113,
+            lineNumber: 144,
             columnNumber: 21
           }, this)
         ] }, category, !0, {
           fileName: "app/components/BuildComponentList.tsx",
-          lineNumber: 66,
+          lineNumber: 67,
           columnNumber: 19
         }, this);
       }) }, void 0, !1, {
         fileName: "app/components/BuildComponentList.tsx",
-        lineNumber: 61,
+        lineNumber: 62,
         columnNumber: 13
       }, this)
     ] }, void 0, !0, {
       fileName: "app/components/BuildComponentList.tsx",
-      lineNumber: 44,
+      lineNumber: 45,
       columnNumber: 11
     }, this) }, void 0, !1, {
       fileName: "app/components/BuildComponentList.tsx",
-      lineNumber: 43,
+      lineNumber: 44,
       columnNumber: 9
     }, this) }, void 0, !1, {
       fileName: "app/components/BuildComponentList.tsx",
-      lineNumber: 42,
+      lineNumber: 43,
       columnNumber: 7
     }, this)
   ] }, void 0, !0, {
     fileName: "app/components/BuildComponentList.tsx",
-    lineNumber: 36,
+    lineNumber: 37,
     columnNumber: 5
   }, this);
 }
 
 // app/routes/builds.$id.tsx
-import { Fragment as Fragment2, jsxDEV as jsxDEV10 } from "react/jsx-dev-runtime";
+import { Fragment as Fragment3, jsxDEV as jsxDEV10 } from "react/jsx-dev-runtime";
 var meta3 = ({ data }) => data?.build ? [
   { title: `${data.build.name} - AppFit PC Builder` },
   { name: "description", content: `View details for the ${data.build.name} PC build` }
@@ -2834,9 +3185,9 @@ async function loader4({ params, request }) {
   let build = getSampleBuilds().find((build2) => build2.id === id);
   if (!build)
     throw new Response("Build not found", { status: 404 });
-  let currentBuild = await getCurrentBuild(request), totalPrice = calculateTotalPrice(build.components), compatibility = checkCompatibility(build.components), totalWattage = getTotalWattage(build);
+  let buildWithPrices = await fetchPricesForBuild(build), currentBuild = await getCurrentBuild(request), totalPrice = calculateTotalPrice(buildWithPrices.components), compatibility = checkCompatibility(buildWithPrices.components), totalWattage = getTotalWattage(buildWithPrices);
   return json4({
-    build,
+    build: buildWithPrices,
     currentBuild,
     totalPrice,
     compatibility,
@@ -2864,14 +3215,14 @@ function BuildDetailPage() {
   return /* @__PURE__ */ jsxDEV10("div", { className: "flex flex-col min-h-screen", children: [
     /* @__PURE__ */ jsxDEV10(Header, { currentBuild }, void 0, !1, {
       fileName: "app/routes/builds.$id.tsx",
-      lineNumber: 89,
+      lineNumber: 92,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV10("main", { className: "flex-grow max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8", children: [
       /* @__PURE__ */ jsxDEV10("div", { className: "mb-6", children: [
         /* @__PURE__ */ jsxDEV10("h1", { className: "text-3xl font-extrabold text-gray-900", children: build.name }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 93,
+          lineNumber: 96,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV10("p", { className: "mt-2 text-lg text-gray-500", children: [
@@ -2879,70 +3230,70 @@ function BuildDetailPage() {
           formatPrice(totalPrice)
         ] }, void 0, !0, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 96,
+          lineNumber: 99,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/builds.$id.tsx",
-        lineNumber: 92,
+        lineNumber: 95,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDEV10("div", { className: "mb-6 flex flex-col md:flex-row gap-4", children: [
-        /* @__PURE__ */ jsxDEV10("div", { className: `flex-1 p-4 rounded-md ${compatibility.compatible ? "bg-green-100" : "bg-red-100"}`, children: /* @__PURE__ */ jsxDEV10("div", { className: "flex items-center", children: compatibility.compatible ? /* @__PURE__ */ jsxDEV10(Fragment2, { children: [
+        /* @__PURE__ */ jsxDEV10("div", { className: `flex-1 p-4 rounded-md ${compatibility.compatible ? "bg-green-100" : "bg-red-100"}`, children: /* @__PURE__ */ jsxDEV10("div", { className: "flex items-center", children: compatibility.compatible ? /* @__PURE__ */ jsxDEV10(Fragment3, { children: [
           /* @__PURE__ */ jsxDEV10("svg", { className: "h-5 w-5 text-green-500", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV10("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z", clipRule: "evenodd" }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 108,
+            lineNumber: 111,
             columnNumber: 21
           }, this) }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 107,
+            lineNumber: 110,
             columnNumber: 19
           }, this),
           /* @__PURE__ */ jsxDEV10("span", { className: "ml-2 text-sm font-medium text-green-800", children: "Compatibility: No issues or incompatibilities found." }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 110,
+            lineNumber: 113,
             columnNumber: 19
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 106,
+          lineNumber: 109,
           columnNumber: 17
-        }, this) : /* @__PURE__ */ jsxDEV10(Fragment2, { children: [
+        }, this) : /* @__PURE__ */ jsxDEV10(Fragment3, { children: [
           /* @__PURE__ */ jsxDEV10("svg", { className: "h-5 w-5 text-red-500", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV10("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z", clipRule: "evenodd" }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 115,
+            lineNumber: 118,
             columnNumber: 21
           }, this) }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 114,
+            lineNumber: 117,
             columnNumber: 19
           }, this),
           /* @__PURE__ */ jsxDEV10("span", { className: "ml-2 text-sm font-medium text-red-800", children: "Compatibility: Issues found" }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 117,
+            lineNumber: 120,
             columnNumber: 19
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 113,
+          lineNumber: 116,
           columnNumber: 17
         }, this) }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 104,
+          lineNumber: 107,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 103,
+          lineNumber: 106,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV10("div", { className: "flex-1 p-4 rounded-md bg-blue-100", children: /* @__PURE__ */ jsxDEV10("div", { className: "flex items-center", children: [
           /* @__PURE__ */ jsxDEV10("svg", { className: "h-5 w-5 text-blue-500", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV10("path", { fillRule: "evenodd", d: "M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z", clipRule: "evenodd" }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 126,
+            lineNumber: 129,
             columnNumber: 17
           }, this) }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 125,
+            lineNumber: 128,
             columnNumber: 15
           }, this),
           /* @__PURE__ */ jsxDEV10("span", { className: "ml-2 text-sm font-medium text-blue-800", children: [
@@ -2951,41 +3302,41 @@ function BuildDetailPage() {
             "W"
           ] }, void 0, !0, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 128,
+            lineNumber: 131,
             columnNumber: 15
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 124,
+          lineNumber: 127,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 123,
+          lineNumber: 126,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/builds.$id.tsx",
-        lineNumber: 102,
+        lineNumber: 105,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDEV10("div", { className: "grid grid-cols-1 gap-8 lg:grid-cols-3", children: [
         /* @__PURE__ */ jsxDEV10("div", { className: "lg:col-span-2", children: /* @__PURE__ */ jsxDEV10(BuildComponentList, { build }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 135,
+          lineNumber: 138,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 134,
+          lineNumber: 137,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV10("div", { className: "lg:col-span-1", children: /* @__PURE__ */ jsxDEV10("div", { className: "bg-white shadow rounded-lg overflow-hidden", children: [
           /* @__PURE__ */ jsxDEV10("div", { className: "px-4 py-5 sm:px-6 bg-gray-50", children: /* @__PURE__ */ jsxDEV10("h3", { className: "text-lg font-medium leading-6 text-gray-900", children: "Build Actions" }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 141,
+            lineNumber: 144,
             columnNumber: 17
           }, this) }, void 0, !1, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 140,
+            lineNumber: 143,
             columnNumber: 15
           }, this),
           /* @__PURE__ */ jsxDEV10("div", { className: "px-4 py-5 sm:p-6", children: [
@@ -3001,7 +3352,7 @@ function BuildDetailPage() {
                 !1,
                 {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 148,
+                  lineNumber: 151,
                   columnNumber: 19
                 },
                 this
@@ -3017,7 +3368,7 @@ function BuildDetailPage() {
                 !1,
                 {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 155,
+                  lineNumber: 158,
                   columnNumber: 19
                 },
                 this
@@ -3033,91 +3384,91 @@ function BuildDetailPage() {
                 !1,
                 {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 162,
+                  lineNumber: 165,
                   columnNumber: 19
                 },
                 this
               )
             ] }, void 0, !0, {
               fileName: "app/routes/builds.$id.tsx",
-              lineNumber: 147,
+              lineNumber: 150,
               columnNumber: 17
             }, this),
             !compatibility.compatible && /* @__PURE__ */ jsxDEV10("div", { className: "mt-6 p-4 rounded-md bg-red-50", children: /* @__PURE__ */ jsxDEV10("div", { className: "flex", children: [
               /* @__PURE__ */ jsxDEV10("svg", { className: "h-5 w-5 text-red-400", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV10("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z", clipRule: "evenodd" }, void 0, !1, {
                 fileName: "app/routes/builds.$id.tsx",
-                lineNumber: 174,
+                lineNumber: 177,
                 columnNumber: 25
               }, this) }, void 0, !1, {
                 fileName: "app/routes/builds.$id.tsx",
-                lineNumber: 173,
+                lineNumber: 176,
                 columnNumber: 23
               }, this),
               /* @__PURE__ */ jsxDEV10("div", { className: "ml-3", children: [
                 /* @__PURE__ */ jsxDEV10("h3", { className: "text-sm font-medium text-red-800", children: "Compatibility issues detected" }, void 0, !1, {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 177,
+                  lineNumber: 180,
                   columnNumber: 25
                 }, this),
                 /* @__PURE__ */ jsxDEV10("div", { className: "mt-2 text-sm text-red-700", children: /* @__PURE__ */ jsxDEV10("ul", { className: "list-disc pl-5 space-y-1", children: compatibility.issues.map((issue, index) => /* @__PURE__ */ jsxDEV10("li", { children: issue }, index, !1, {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 181,
+                  lineNumber: 184,
                   columnNumber: 31
                 }, this)) }, void 0, !1, {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 179,
+                  lineNumber: 182,
                   columnNumber: 27
                 }, this) }, void 0, !1, {
                   fileName: "app/routes/builds.$id.tsx",
-                  lineNumber: 178,
+                  lineNumber: 181,
                   columnNumber: 25
                 }, this)
               ] }, void 0, !0, {
                 fileName: "app/routes/builds.$id.tsx",
-                lineNumber: 176,
+                lineNumber: 179,
                 columnNumber: 23
               }, this)
             ] }, void 0, !0, {
               fileName: "app/routes/builds.$id.tsx",
-              lineNumber: 172,
+              lineNumber: 175,
               columnNumber: 21
             }, this) }, void 0, !1, {
               fileName: "app/routes/builds.$id.tsx",
-              lineNumber: 171,
+              lineNumber: 174,
               columnNumber: 19
             }, this)
           ] }, void 0, !0, {
             fileName: "app/routes/builds.$id.tsx",
-            lineNumber: 146,
+            lineNumber: 149,
             columnNumber: 15
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 139,
+          lineNumber: 142,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/builds.$id.tsx",
-          lineNumber: 138,
+          lineNumber: 141,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/builds.$id.tsx",
-        lineNumber: 133,
+        lineNumber: 136,
         columnNumber: 9
       }, this)
     ] }, void 0, !0, {
       fileName: "app/routes/builds.$id.tsx",
-      lineNumber: 91,
+      lineNumber: 94,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV10(Footer, {}, void 0, !1, {
       fileName: "app/routes/builds.$id.tsx",
-      lineNumber: 195,
+      lineNumber: 198,
       columnNumber: 7
     }, this)
   ] }, void 0, !0, {
     fileName: "app/routes/builds.$id.tsx",
-    lineNumber: 88,
+    lineNumber: 91,
     columnNumber: 5
   }, this);
 }
@@ -3134,7 +3485,7 @@ import { Link as Link6, useLoaderData as useLoaderData5 } from "@remix-run/react
 
 // app/components/BuildSummary.tsx
 import { Link as Link5 } from "@remix-run/react";
-import { Fragment as Fragment3, jsxDEV as jsxDEV11 } from "react/jsx-dev-runtime";
+import { Fragment as Fragment4, jsxDEV as jsxDEV11 } from "react/jsx-dev-runtime";
 function BuildSummary({ build, onLoadBuild, onDeleteBuild, isSaved = !1 }) {
   let totalPrice = calculateTotalPrice(build.components), compatibility = checkCompatibility(build.components), componentCount = getComponentCount(build), isComplete = isBuildComplete(build);
   return /* @__PURE__ */ jsxDEV11("div", { className: "bg-white shadow rounded-lg overflow-hidden", children: [
@@ -3220,7 +3571,7 @@ function BuildSummary({ build, onLoadBuild, onDeleteBuild, isSaved = !1 }) {
         lineNumber: 42,
         columnNumber: 9
       }, this),
-      /* @__PURE__ */ jsxDEV11("div", { className: `p-3 rounded-md mb-4 ${compatibility.compatible ? "bg-green-50" : "bg-red-50"}`, children: /* @__PURE__ */ jsxDEV11("div", { className: "flex", children: compatibility.compatible ? /* @__PURE__ */ jsxDEV11(Fragment3, { children: [
+      /* @__PURE__ */ jsxDEV11("div", { className: `p-3 rounded-md mb-4 ${compatibility.compatible ? "bg-green-50" : "bg-red-50"}`, children: /* @__PURE__ */ jsxDEV11("div", { className: "flex", children: compatibility.compatible ? /* @__PURE__ */ jsxDEV11(Fragment4, { children: [
         /* @__PURE__ */ jsxDEV11("svg", { className: "h-5 w-5 text-green-400", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV11("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z", clipRule: "evenodd" }, void 0, !1, {
           fileName: "app/components/BuildSummary.tsx",
           lineNumber: 59,
@@ -3243,7 +3594,7 @@ function BuildSummary({ build, onLoadBuild, onDeleteBuild, isSaved = !1 }) {
         fileName: "app/components/BuildSummary.tsx",
         lineNumber: 57,
         columnNumber: 15
-      }, this) : /* @__PURE__ */ jsxDEV11(Fragment3, { children: [
+      }, this) : /* @__PURE__ */ jsxDEV11(Fragment4, { children: [
         /* @__PURE__ */ jsxDEV11("svg", { className: "h-5 w-5 text-red-400", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV11("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z", clipRule: "evenodd" }, void 0, !1, {
           fileName: "app/components/BuildSummary.tsx",
           lineNumber: 68,
@@ -4154,7 +4505,7 @@ __export(build_exports, {
 });
 import { json as json8, redirect as redirect5 } from "@remix-run/node";
 import { useLoaderData as useLoaderData8, useSubmit as useSubmit4 } from "@remix-run/react";
-import { Fragment as Fragment4, jsxDEV as jsxDEV15 } from "react/jsx-dev-runtime";
+import { Fragment as Fragment5, jsxDEV as jsxDEV15 } from "react/jsx-dev-runtime";
 var meta7 = () => [
   { title: "Current Build - AppFit PC Builder" },
   { name: "description", content: "View and edit your current PC build" }
@@ -4163,9 +4514,9 @@ async function loader8({ request }) {
   let currentBuild = await getCurrentBuild(request);
   if (!currentBuild)
     return redirect5("/");
-  let totalPrice = calculateTotalPrice(currentBuild.components), compatibility = checkCompatibility(currentBuild.components), totalWattage = getTotalWattage(currentBuild);
+  let buildWithPrices = await fetchPricesForBuild(currentBuild), totalPrice = calculateTotalPrice(buildWithPrices.components), compatibility = checkCompatibility(buildWithPrices.components), totalWattage = getTotalWattage(buildWithPrices);
   return json8({
-    currentBuild,
+    currentBuild: buildWithPrices,
     totalPrice,
     compatibility,
     totalWattage
@@ -4215,7 +4566,7 @@ function BuildPage() {
   return /* @__PURE__ */ jsxDEV15("div", { className: "flex flex-col min-h-screen", children: [
     /* @__PURE__ */ jsxDEV15(Header, { currentBuild }, void 0, !1, {
       fileName: "app/routes/build.tsx",
-      lineNumber: 112,
+      lineNumber: 115,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV15("main", { className: "flex-grow max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8", children: [
@@ -4234,7 +4585,7 @@ function BuildPage() {
             !1,
             {
               fileName: "app/routes/build.tsx",
-              lineNumber: 117,
+              lineNumber: 120,
               columnNumber: 13
             },
             this
@@ -4250,14 +4601,14 @@ function BuildPage() {
             !1,
             {
               fileName: "app/routes/build.tsx",
-              lineNumber: 124,
+              lineNumber: 127,
               columnNumber: 13
             },
             this
           )
         ] }, void 0, !0, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 116,
+          lineNumber: 119,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV15("div", { className: "flex space-x-2", children: [
@@ -4269,11 +4620,11 @@ function BuildPage() {
               children: [
                 /* @__PURE__ */ jsxDEV15("svg", { className: "h-4 w-4 mr-1", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV15("path", { d: "M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 138,
+                  lineNumber: 141,
                   columnNumber: 17
                 }, this) }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 137,
+                  lineNumber: 140,
                   columnNumber: 15
                 }, this),
                 "Share"
@@ -4283,7 +4634,7 @@ function BuildPage() {
             !0,
             {
               fileName: "app/routes/build.tsx",
-              lineNumber: 133,
+              lineNumber: 136,
               columnNumber: 13
             },
             this
@@ -4299,77 +4650,77 @@ function BuildPage() {
             !1,
             {
               fileName: "app/routes/build.tsx",
-              lineNumber: 143,
+              lineNumber: 146,
               columnNumber: 13
             },
             this
           )
         ] }, void 0, !0, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 132,
+          lineNumber: 135,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/build.tsx",
-        lineNumber: 115,
+        lineNumber: 118,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDEV15("div", { className: "mb-6 flex flex-col md:flex-row gap-4", children: [
-        /* @__PURE__ */ jsxDEV15("div", { className: `flex-1 p-4 rounded-md ${compatibility.compatible ? "bg-green-100" : "bg-red-100"}`, children: /* @__PURE__ */ jsxDEV15("div", { className: "flex items-center", children: compatibility.compatible ? /* @__PURE__ */ jsxDEV15(Fragment4, { children: [
+        /* @__PURE__ */ jsxDEV15("div", { className: `flex-1 p-4 rounded-md ${compatibility.compatible ? "bg-green-100" : "bg-red-100"}`, children: /* @__PURE__ */ jsxDEV15("div", { className: "flex items-center", children: compatibility.compatible ? /* @__PURE__ */ jsxDEV15(Fragment5, { children: [
           /* @__PURE__ */ jsxDEV15("svg", { className: "h-5 w-5 text-green-500", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV15("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z", clipRule: "evenodd" }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 159,
+            lineNumber: 162,
             columnNumber: 21
           }, this) }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 158,
+            lineNumber: 161,
             columnNumber: 19
           }, this),
           /* @__PURE__ */ jsxDEV15("span", { className: "ml-2 text-sm font-medium text-green-800", children: "Compatibility: No issues or incompatibilities found." }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 161,
+            lineNumber: 164,
             columnNumber: 19
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 157,
+          lineNumber: 160,
           columnNumber: 17
-        }, this) : /* @__PURE__ */ jsxDEV15(Fragment4, { children: [
+        }, this) : /* @__PURE__ */ jsxDEV15(Fragment5, { children: [
           /* @__PURE__ */ jsxDEV15("svg", { className: "h-5 w-5 text-red-500", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV15("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z", clipRule: "evenodd" }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 166,
+            lineNumber: 169,
             columnNumber: 21
           }, this) }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 165,
+            lineNumber: 168,
             columnNumber: 19
           }, this),
           /* @__PURE__ */ jsxDEV15("span", { className: "ml-2 text-sm font-medium text-red-800", children: "Compatibility: Issues found" }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 168,
+            lineNumber: 171,
             columnNumber: 19
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 164,
+          lineNumber: 167,
           columnNumber: 17
         }, this) }, void 0, !1, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 155,
+          lineNumber: 158,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 154,
+          lineNumber: 157,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV15("div", { className: "flex-1 p-4 rounded-md bg-blue-100", children: /* @__PURE__ */ jsxDEV15("div", { className: "flex items-center", children: [
           /* @__PURE__ */ jsxDEV15("svg", { className: "h-5 w-5 text-blue-500", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV15("path", { fillRule: "evenodd", d: "M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z", clipRule: "evenodd" }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 177,
+            lineNumber: 180,
             columnNumber: 17
           }, this) }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 176,
+            lineNumber: 179,
             columnNumber: 15
           }, this),
           /* @__PURE__ */ jsxDEV15("span", { className: "ml-2 text-sm font-medium text-blue-800", children: [
@@ -4378,21 +4729,21 @@ function BuildPage() {
             "W"
           ] }, void 0, !0, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 179,
+            lineNumber: 182,
             columnNumber: 15
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 175,
+          lineNumber: 178,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 174,
+          lineNumber: 177,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/build.tsx",
-        lineNumber: 153,
+        lineNumber: 156,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDEV15("div", { className: "grid grid-cols-1 gap-8 lg:grid-cols-3", children: [
@@ -4406,23 +4757,23 @@ function BuildPage() {
           !1,
           {
             fileName: "app/routes/build.tsx",
-            lineNumber: 187,
+            lineNumber: 190,
             columnNumber: 13
           },
           this
         ) }, void 0, !1, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 186,
+          lineNumber: 189,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDEV15("div", { className: "lg:col-span-1", children: /* @__PURE__ */ jsxDEV15("div", { className: "bg-white shadow rounded-lg overflow-hidden", children: [
           /* @__PURE__ */ jsxDEV15("div", { className: "px-4 py-5 sm:px-6 bg-gray-50", children: /* @__PURE__ */ jsxDEV15("h3", { className: "text-lg font-medium leading-6 text-gray-900", children: "Build Summary" }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 196,
+            lineNumber: 199,
             columnNumber: 17
           }, this) }, void 0, !1, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 195,
+            lineNumber: 198,
             columnNumber: 15
           }, this),
           /* @__PURE__ */ jsxDEV15("div", { className: "px-4 py-5 sm:p-6", children: [
@@ -4430,23 +4781,23 @@ function BuildPage() {
               /* @__PURE__ */ jsxDEV15("div", { className: "flex justify-between items-center mb-2", children: [
                 /* @__PURE__ */ jsxDEV15("span", { className: "text-sm font-medium text-gray-500", children: "Total Price:" }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 204,
+                  lineNumber: 207,
                   columnNumber: 21
                 }, this),
                 /* @__PURE__ */ jsxDEV15("span", { className: "text-xl font-bold text-gray-900", children: formatPrice(totalPrice) }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 205,
+                  lineNumber: 208,
                   columnNumber: 21
                 }, this)
               ] }, void 0, !0, {
                 fileName: "app/routes/build.tsx",
-                lineNumber: 203,
+                lineNumber: 206,
                 columnNumber: 19
               }, this),
               /* @__PURE__ */ jsxDEV15("div", { className: "flex justify-between items-center", children: [
                 /* @__PURE__ */ jsxDEV15("span", { className: "text-sm font-medium text-gray-500", children: "Component Count:" }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 209,
+                  lineNumber: 212,
                   columnNumber: 21
                 }, this),
                 /* @__PURE__ */ jsxDEV15("span", { className: "text-sm font-medium text-gray-900", children: [
@@ -4454,60 +4805,60 @@ function BuildPage() {
                   " / 9"
                 ] }, void 0, !0, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 210,
+                  lineNumber: 213,
                   columnNumber: 21
                 }, this)
               ] }, void 0, !0, {
                 fileName: "app/routes/build.tsx",
-                lineNumber: 208,
+                lineNumber: 211,
                 columnNumber: 19
               }, this)
             ] }, void 0, !0, {
               fileName: "app/routes/build.tsx",
-              lineNumber: 202,
+              lineNumber: 205,
               columnNumber: 17
             }, this),
             !compatibility.compatible && /* @__PURE__ */ jsxDEV15("div", { className: "p-4 rounded-md mb-4 bg-red-50", children: /* @__PURE__ */ jsxDEV15("div", { className: "flex", children: [
               /* @__PURE__ */ jsxDEV15("svg", { className: "h-5 w-5 text-red-400", fill: "currentColor", viewBox: "0 0 20 20", children: /* @__PURE__ */ jsxDEV15("path", { fillRule: "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z", clipRule: "evenodd" }, void 0, !1, {
                 fileName: "app/routes/build.tsx",
-                lineNumber: 218,
+                lineNumber: 221,
                 columnNumber: 25
               }, this) }, void 0, !1, {
                 fileName: "app/routes/build.tsx",
-                lineNumber: 217,
+                lineNumber: 220,
                 columnNumber: 23
               }, this),
               /* @__PURE__ */ jsxDEV15("div", { className: "ml-3", children: [
                 /* @__PURE__ */ jsxDEV15("h3", { className: "text-sm font-medium text-red-800", children: "Compatibility issues detected" }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 221,
+                  lineNumber: 224,
                   columnNumber: 25
                 }, this),
                 /* @__PURE__ */ jsxDEV15("div", { className: "mt-2 text-sm text-red-700", children: /* @__PURE__ */ jsxDEV15("ul", { className: "list-disc pl-5 space-y-1", children: compatibility.issues.map((issue, index) => /* @__PURE__ */ jsxDEV15("li", { children: issue }, index, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 225,
+                  lineNumber: 228,
                   columnNumber: 31
                 }, this)) }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 223,
+                  lineNumber: 226,
                   columnNumber: 27
                 }, this) }, void 0, !1, {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 222,
+                  lineNumber: 225,
                   columnNumber: 25
                 }, this)
               ] }, void 0, !0, {
                 fileName: "app/routes/build.tsx",
-                lineNumber: 220,
+                lineNumber: 223,
                 columnNumber: 23
               }, this)
             ] }, void 0, !0, {
               fileName: "app/routes/build.tsx",
-              lineNumber: 216,
+              lineNumber: 219,
               columnNumber: 21
             }, this) }, void 0, !1, {
               fileName: "app/routes/build.tsx",
-              lineNumber: 215,
+              lineNumber: 218,
               columnNumber: 19
             }, this),
             /* @__PURE__ */ jsxDEV15("div", { className: "grid grid-cols-1 gap-4", children: [
@@ -4522,7 +4873,7 @@ function BuildPage() {
                 !1,
                 {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 235,
+                  lineNumber: 238,
                   columnNumber: 19
                 },
                 this
@@ -4538,7 +4889,7 @@ function BuildPage() {
                 !1,
                 {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 242,
+                  lineNumber: 245,
                   columnNumber: 19
                 },
                 this
@@ -4554,54 +4905,54 @@ function BuildPage() {
                 !1,
                 {
                   fileName: "app/routes/build.tsx",
-                  lineNumber: 250,
+                  lineNumber: 253,
                   columnNumber: 21
                 },
                 this
               )
             ] }, void 0, !0, {
               fileName: "app/routes/build.tsx",
-              lineNumber: 234,
+              lineNumber: 237,
               columnNumber: 17
             }, this)
           ] }, void 0, !0, {
             fileName: "app/routes/build.tsx",
-            lineNumber: 201,
+            lineNumber: 204,
             columnNumber: 15
           }, this)
         ] }, void 0, !0, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 194,
+          lineNumber: 197,
           columnNumber: 13
         }, this) }, void 0, !1, {
           fileName: "app/routes/build.tsx",
-          lineNumber: 193,
+          lineNumber: 196,
           columnNumber: 11
         }, this)
       ] }, void 0, !0, {
         fileName: "app/routes/build.tsx",
-        lineNumber: 185,
+        lineNumber: 188,
         columnNumber: 9
       }, this)
     ] }, void 0, !0, {
       fileName: "app/routes/build.tsx",
-      lineNumber: 114,
+      lineNumber: 117,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDEV15(Footer, {}, void 0, !1, {
       fileName: "app/routes/build.tsx",
-      lineNumber: 264,
+      lineNumber: 267,
       columnNumber: 7
     }, this)
   ] }, void 0, !0, {
     fileName: "app/routes/build.tsx",
-    lineNumber: 111,
+    lineNumber: 114,
     columnNumber: 5
   }, this);
 }
 
 // server-assets-manifest:@remix-run/dev/assets-manifest
-var assets_manifest_default = { entry: { module: "/build/entry.client-DBIKN74U.js", imports: ["/build/_shared/chunk-O4BRYNJ4.js", "/build/_shared/chunk-XGOTYLZ5.js", "/build/_shared/chunk-36B7IPRI.js", "/build/_shared/chunk-ANJYWBBG.js", "/build/_shared/chunk-UWV35TSL.js", "/build/_shared/chunk-U4FRFQSK.js", "/build/_shared/chunk-7M6SC7J5.js", "/build/_shared/chunk-PNG5AS42.js"] }, routes: { root: { id: "root", parentId: void 0, path: "", index: void 0, caseSensitive: void 0, module: "/build/root-S2NJ2QTI.js", imports: void 0, hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !0 }, "routes/_index": { id: "routes/_index", parentId: "root", path: void 0, index: !0, caseSensitive: void 0, module: "/build/routes/_index-EH4U6OCG.js", imports: ["/build/_shared/chunk-U47D45R5.js", "/build/_shared/chunk-X4GUHURT.js", "/build/_shared/chunk-KUBTFBQT.js"], hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/build": { id: "routes/build", parentId: "root", path: "build", index: void 0, caseSensitive: void 0, module: "/build/routes/build-YNH5J32V.js", imports: ["/build/_shared/chunk-J6FUJ22C.js", "/build/_shared/chunk-KUBTFBQT.js"], hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/builds": { id: "routes/builds", parentId: "root", path: "builds", index: void 0, caseSensitive: void 0, module: "/build/routes/builds-QX3WEKJR.js", imports: ["/build/_shared/chunk-X4GUHURT.js", "/build/_shared/chunk-KUBTFBQT.js"], hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/builds.$id": { id: "routes/builds.$id", parentId: "routes/builds", path: ":id", index: void 0, caseSensitive: void 0, module: "/build/routes/builds.$id-FPNHLWC4.js", imports: ["/build/_shared/chunk-J6FUJ22C.js"], hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/components.$category": { id: "routes/components.$category", parentId: "root", path: "components/:category", index: void 0, caseSensitive: void 0, module: "/build/routes/components.$category-UM2STTOL.js", imports: ["/build/_shared/chunk-3R5SRJPV.js", "/build/_shared/chunk-U47D45R5.js", "/build/_shared/chunk-KUBTFBQT.js"], hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/components.$category.$id": { id: "routes/components.$category.$id", parentId: "routes/components.$category", path: ":id", index: void 0, caseSensitive: void 0, module: "/build/routes/components.$category.$id-VMWKSQVJ.js", imports: void 0, hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/guides": { id: "routes/guides", parentId: "root", path: "guides", index: void 0, caseSensitive: void 0, module: "/build/routes/guides-IFRPWB3N.js", imports: ["/build/_shared/chunk-KUBTFBQT.js"], hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 } }, version: "e8278e26", hmr: { runtime: "/build/_shared/chunk-ANJYWBBG.js", timestamp: 1746043947242 }, url: "/build/manifest-E8278E26.js" };
+var assets_manifest_default = { entry: { module: "/build/entry.client-G26JGZI2.js", imports: ["/build/_shared/chunk-O4BRYNJ4.js", "/build/_shared/chunk-XGOTYLZ5.js", "/build/_shared/chunk-W7MP7V2F.js", "/build/_shared/chunk-ANJYWBBG.js", "/build/_shared/chunk-UWV35TSL.js", "/build/_shared/chunk-U4FRFQSK.js", "/build/_shared/chunk-7M6SC7J5.js", "/build/_shared/chunk-PNG5AS42.js"] }, routes: { root: { id: "root", parentId: void 0, path: "", index: void 0, caseSensitive: void 0, module: "/build/root-UXUV6UKA.js", imports: void 0, hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !0 }, "routes/_index": { id: "routes/_index", parentId: "root", path: void 0, index: !0, caseSensitive: void 0, module: "/build/routes/_index-AK7HCHDD.js", imports: ["/build/_shared/chunk-ME4BYBQE.js", "/build/_shared/chunk-VN6WCBCO.js", "/build/_shared/chunk-6HMLKJYX.js"], hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/build": { id: "routes/build", parentId: "root", path: "build", index: void 0, caseSensitive: void 0, module: "/build/routes/build-WIDUD363.js", imports: ["/build/_shared/chunk-B3WUPU2S.js", "/build/_shared/chunk-6HMLKJYX.js"], hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/builds": { id: "routes/builds", parentId: "root", path: "builds", index: void 0, caseSensitive: void 0, module: "/build/routes/builds-HLIQMXE2.js", imports: ["/build/_shared/chunk-VN6WCBCO.js", "/build/_shared/chunk-6HMLKJYX.js"], hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/builds.$id": { id: "routes/builds.$id", parentId: "routes/builds", path: ":id", index: void 0, caseSensitive: void 0, module: "/build/routes/builds.$id-F5M2OEPA.js", imports: ["/build/_shared/chunk-B3WUPU2S.js"], hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/components.$category": { id: "routes/components.$category", parentId: "root", path: "components/:category", index: void 0, caseSensitive: void 0, module: "/build/routes/components.$category-PC6UI2CQ.js", imports: ["/build/_shared/chunk-GANP5EDM.js", "/build/_shared/chunk-ME4BYBQE.js", "/build/_shared/chunk-6HMLKJYX.js"], hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/components.$category.$id": { id: "routes/components.$category.$id", parentId: "routes/components.$category", path: ":id", index: void 0, caseSensitive: void 0, module: "/build/routes/components.$category.$id-ZUBPYU4E.js", imports: void 0, hasAction: !0, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 }, "routes/guides": { id: "routes/guides", parentId: "root", path: "guides", index: void 0, caseSensitive: void 0, module: "/build/routes/guides-SOSZIDHH.js", imports: ["/build/_shared/chunk-6HMLKJYX.js"], hasAction: !1, hasLoader: !0, hasClientAction: !1, hasClientLoader: !1, hasErrorBoundary: !1 } }, version: "bff358fb", hmr: { runtime: "/build/_shared/chunk-ANJYWBBG.js", timestamp: 1746048002205 }, url: "/build/manifest-BFF358FB.js" };
 
 // server-entry-module:@remix-run/dev/server-build
 var mode = "development", assetsBuildDirectory = "public/build", future = { v3_fetcherPersist: !1, v3_relativeSplatPath: !1, v3_throwAbortReason: !1, v3_routeConfig: !1, v3_singleFetch: !1, v3_lazyRouteDiscovery: !1, unstable_optimizeDeps: !1 }, publicPath = "/build/", entry = { module: entry_server_exports }, routes = {
