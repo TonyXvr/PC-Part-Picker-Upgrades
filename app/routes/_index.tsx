@@ -20,7 +20,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const sampleBuilds = getSampleBuilds();
   const featuredCpus = getComponentsByCategory('cpu').slice(0, 2);
   const featuredGpus = getComponentsByCategory('video-card').slice(0, 2);
-  
+
   return json(
     {
       currentBuild: build,
@@ -34,11 +34,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function Index() {
   const { currentBuild, sampleBuilds, featuredCpus, featuredGpus } = useLoaderData<typeof loader>();
-  
+
   return (
     <div className="flex flex-col min-h-screen">
       <Header currentBuild={currentBuild} />
-      
+
       <main className="flex-grow">
         {/* Hero Section */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700">
@@ -50,24 +50,36 @@ export default function Index() {
               <p className="mt-6 max-w-2xl mx-auto text-xl text-blue-100">
                 Select compatible components, compare prices, and create your perfect custom PC build.
               </p>
-              <div className="mt-10 flex justify-center">
+              <div className="mt-10 flex flex-col items-center">
                 <Link
-                  to="/components/cpu"
-                  className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
+                  to="/build"
+                  className="inline-flex items-center px-8 py-4 border border-transparent text-lg font-bold rounded-md text-blue-700 bg-white hover:bg-blue-50 shadow-lg"
                 >
-                  Start Building
+                  <svg className="h-6 w-6 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 3a1 1 0 00-1 1v5H4a1 1 0 100 2h5v5a1 1 0 102 0v-5h5a1 1 0 100-2h-5V4a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  Start Your Build
                 </Link>
-                <Link
-                  to="/builds"
-                  className="ml-4 inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-800 bg-opacity-60 hover:bg-opacity-70"
-                >
-                  View Featured Builds
-                </Link>
+
+                <div className="mt-6 flex space-x-4">
+                  <Link
+                    to="/components/cpu"
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-800 bg-opacity-60 hover:bg-opacity-70"
+                  >
+                    Browse Components
+                  </Link>
+                  <Link
+                    to="/guides"
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-800 bg-opacity-60 hover:bg-opacity-70"
+                  >
+                    View Build Guides
+                  </Link>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        
+
         {/* How It Works Section */}
         <div className="bg-white py-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -77,7 +89,7 @@ export default function Index() {
                 Build Your PC in 3 Simple Steps
               </p>
             </div>
-            
+
             <div className="mt-10">
               <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-3">
                 <div className="flex flex-col items-center">
@@ -93,7 +105,7 @@ export default function Index() {
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="flex flex-col items-center">
                   <div className="flex items-center justify-center h-12 w-12 rounded-md bg-blue-600 text-white">
                     <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -107,7 +119,7 @@ export default function Index() {
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="flex flex-col items-center">
                   <div className="flex items-center justify-center h-12 w-12 rounded-md bg-blue-600 text-white">
                     <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -125,7 +137,7 @@ export default function Index() {
             </div>
           </div>
         </div>
-        
+
         {/* Featured Components Section */}
         <div className="bg-gray-50 py-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -135,7 +147,7 @@ export default function Index() {
                 Popular CPUs & GPUs
               </p>
             </div>
-            
+
             <div className="mt-6">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Featured CPUs</h3>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-2">
@@ -144,7 +156,7 @@ export default function Index() {
                 ))}
               </div>
             </div>
-            
+
             <div className="mt-12">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Featured GPUs</h3>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-2">
@@ -153,7 +165,7 @@ export default function Index() {
                 ))}
               </div>
             </div>
-            
+
             <div className="mt-10 text-center">
               <Link
                 to="/components/cpu"
@@ -164,7 +176,7 @@ export default function Index() {
             </div>
           </div>
         </div>
-        
+
         {/* Featured Builds Section */}
         <div className="bg-white py-12">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -174,13 +186,13 @@ export default function Index() {
                 Pre-configured PC Builds
               </p>
             </div>
-            
+
             <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
               {sampleBuilds.map((build) => (
                 <BuildSummary key={build.id} build={build} />
               ))}
             </div>
-            
+
             <div className="mt-10 text-center">
               <Link
                 to="/builds"
@@ -192,7 +204,7 @@ export default function Index() {
           </div>
         </div>
       </main>
-      
+
       <Footer />
     </div>
   );

@@ -2,26 +2,46 @@
 node_modules/
 .pnp
 .pnp.js
+.yarn/
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 .yarn/install-state.gz
+.npm/
 
 # Build/Cache Outputs
 build/
 .cache/
 public/build/
+dist/
+dist-ssr/
+*.local
 
 # Remix specific
 .remix/
 app/styles/**/*.css
+api/_build/
+.netlify/
+.vercel/
+.serverless/
 
 # Testing
 coverage/
+/cypress/videos/
+/cypress/screenshots/
+/playwright-report/
+/test-results/
 
 # Environment variables
 .env*
 !.env.example
 !.env.template
+!.env.defaults
 
 # Logs
+logs
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -31,16 +51,56 @@ lerna-debug.log*
 
 # OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+desktop.ini
 
 # Editor directories and files
-.idea
-.vscode/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swp
+*.swo
+*~
 
 # Virtual environment
-.venv/ 
+.venv/
+venv/
+ENV/
+
+# Temporary files
+*.tmp
+*.bak
+.temp/
+.tmp/
+
+# Database files
+*.sqlite
+*.sqlite3
+*.db
+
+# Compiled output
+*.compiled.js
+*.compiled.js.map
+*.min.js
+*.min.css
+
+# Debug files
+.debug/
+debug.log
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
